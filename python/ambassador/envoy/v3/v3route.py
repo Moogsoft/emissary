@@ -19,6 +19,7 @@ from ..common import EnvoyRoute
 from ...cache import Cacheable
 from ...ir.irhttpmappinggroup import IRHTTPMappingGroup
 from ...ir.irbasemapping import IRBaseMapping
+from ...ir.irutils import hostglob_matches
 
 from .v3ratelimitaction import V3RateLimitAction
 
@@ -101,17 +102,6 @@ def regex_matcher(config: 'V3Config', regex: str, key="regex", safe_key=None) ->
                 "regex": regex
             }
         }
-
-
-def hostglob_matches(glob: str, value: str) -> bool:
-    if glob == "*": # special wildcard
-        return True
-    elif glob.endswith("*"): # prefix match
-        return value.startswith(glob[:-1])
-    elif glob.startswith("*"): # suffix match
-        return value.endswith(glob[1:])
-    else: # exact match
-        return value == glob
 
 
 class V3RouteVariants:
@@ -247,6 +237,9 @@ class V3RouteVariants:
 class V3Route(Cacheable):
     def __init__(self, config: 'V3Config', group: IRHTTPMappingGroup, mapping: IRBaseMapping) -> None:
         super().__init__()
+
+        # Save the logger.
+        self.logger = group.logger
 
         # Stash SNI and precedence info where we can find it later.
         if group.get('sni'):
@@ -613,6 +606,29 @@ class V3Route(Cacheable):
 
         return hostglobs
 
+    def matches_domain(self, domain: str) -> bool:
+        return any(hostglob_matches(route_glob, domain) for route_glob in self["_host_constraints"])
+
+    def matches_domains(self,domains: List[str]) -> bool:
+        route_hosts = self["_host_constraints"]
+
+        self.logger.info(f"    - matches_domains: route_hosts {', '.join(sorted(route_hosts))}")
+        self.logger.info(f"    - matches_domains: domains {', '.join(sorted(domains))}")
+
+        if (not route_hosts) or ("*" in route_hosts):
+            self.logger.info(f"    - matches_domains: nonspecific route_hosts")
+            return True
+
+        if "*" in domains:
+            self.logger.info(f"    - matches_domains: nonspecific domains")
+            return True
+
+        if any([ self.matches_domain(domain) for domain in domains ]):
+            self.logger.info(f"    - matches_domains: domain match")
+            return True
+
+        self.logger.info(f"    - matches_domains: nothing matches")
+        return False
 
     @classmethod
     def get_route(cls, config: 'V3Config', cache_key: str,

@@ -34,10 +34,6 @@ if TYPE_CHECKING:
     from . import V3Config                      # pragma: no cover
 
 
-def route_host_match(route_hosts: Set[str], vhostname: str) -> bool:
-    return any(hostglob_matches(route_glob, vhostname) for route_glob in route_hosts)    
-
-
 class V3Listener(dict):
     def __init__(self, config: 'V3Config', irlistener: IRListener) -> None:
         super().__init__()
@@ -477,7 +473,10 @@ class V3Listener(dict):
 
     def finalize_vhosts(self) -> None:
         # Match up Hosts with this Listener, and create VHosts for them.
-        for host in self.config.ir.get_hosts():
+        for host in sorted(self.config.ir.get_hosts(), key=lambda h: h.hostname or "*"):
+            self.config.ir.logger.info("V3Listener %s: consider %s", self.name, host)
+            vhostname = host.hostname or "*"
+
             # XXX Reject if labels don't match.
 
             # OK, if we're still here, then it's a question of matching the Listener's 
@@ -496,8 +495,6 @@ class V3Listener(dict):
                 continue
 
             # OK, we can't drop it for that, so we need to check the actions.
-
-            vhostname = host.hostname or "*"
 
             security_model = self._security_model
             secure_action = host.secure_action
@@ -538,9 +535,15 @@ class V3Listener(dict):
         for rv in self.config.route_variants:
             logger.info("CHECK ROUTE: %s", v3prettyroute(dict(rv.route)))
 
-            # For each route, go walk all our vhosts and match things up.
+            # For each route, go walk all our viable vhosts and match things up.
             for vhostkey, vhost in self._vhosts.items():
-                logger.info(f"    {vhost.pretty()}")
+                # We already know that this VHost is OK, but! make sure the Mapping matches
+                # as well.
+                vhostname = vhost._hostname
+
+                if not rv.route.matches_domains(vhost._domains):
+                    logger.info(f"    drop outright: no hosts match {sorted(rv.route['_host_constraints'])}")
+                    continue
 
                 # For each vhost, we need to look at things for the secure world as well
                 # as the insecure world, depending on what the action is exactly (and note
@@ -548,7 +551,6 @@ class V3Listener(dict):
                 # 
                 # "candidates" is matcher, action, V3RouteVariants
                 candidates: List[Tuple[str, str, V3RouteVariants]] = []
-                vhostname = vhost._hostname
 
                 if (vhost._action is not None) and (self._security_model != "INSECURE"):
                     # We have a secure action, and we're willing to believe that at least some of
@@ -567,7 +569,6 @@ class V3Listener(dict):
 
                 for matcher, action, rv in candidates:
                     route_precedence = rv.route.get('_precedence', None)
-                    route_hosts = rv.route['_host_constraints']
                     extra_info = ""
 
                     if rv.route["match"].get("prefix", None) == "/.well-known/acme-challenge/":
@@ -575,10 +576,6 @@ class V3Listener(dict):
                         # on (this is the infamous ACME hole-puncher mentioned everywhere).
                         extra_info = " (force Route for ACME challenge)"
                         action = "Route"
-                    elif ('*' not in route_hosts) and (vhostname != '*') and (not route_host_match(route_hosts, vhostname)):
-                        # Drop this because the host is mismatched.
-                        extra_info = f" (force Reject for mismatched host {sorted(route_hosts)})"
-                        action = "Reject"
                     elif (self.config.ir.edge_stack_allowed and
                             (route_precedence == -1000000) and
                             (rv.route["match"].get("safe_regex", {}).get("regex", None) == "^/$")):
@@ -610,14 +607,6 @@ class V3Listener(dict):
             if vhost._hostname and (vhost._hostname != '*'):
                     filter_chain_match["server_names"] = [ vhost._hostname ]
 
-            if vhost._hostname == "*":
-                domains = [vhost._hostname]
-            else:
-                if vhost._ctx is not None and vhost._ctx.hosts is not None and len(vhost._ctx.hosts) > 0:
-                    domains = vhost._ctx.hosts
-                else:
-                    domains = [vhost._hostname]
-
             # ...then build up the Envoy structures around it.
             filter_chain: Dict[str, Any] = {
                 "filter_chain_match": filter_chain_match,
@@ -638,7 +627,7 @@ class V3Listener(dict):
                 "virtual_hosts": [
                     {
                         "name": f"{self.name}-{vhost._name}",
-                        "domains": domains,
+                        "domains": vhost._domains,
                         "routes": vhost.routes
                     }
                 ]

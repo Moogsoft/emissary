@@ -48,6 +48,13 @@ class V2VirtualHost:
         self.tls_context = V2TLSContext(ctx)
         self.routes: List[DictifiedV2Route] = []
 
+        if self._hostname == "*":
+            self._domains = [ self._hostname ]
+        elif (self._ctx is not None) and (self._ctx.hosts is not None) and (len(self._ctx.hosts) > 0):
+            self._domains = self._ctx.hosts
+        else:
+            self._domains = [ self._hostname ]
+
     def finalize(self) -> None:
         # It's important from a performance perspective to wrap debug log statements
         # with this check so we don't end up generating log strings (or even JSON
