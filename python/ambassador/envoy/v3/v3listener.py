@@ -92,7 +92,7 @@ class V3Listener(dict):
                         continue
                     
                     if irgroup.bind_to() != self.bind_to: 
-                        # self.config.ir.logger.info("V3Listener %s: skip TCPMappingGroup on %s", self.bind_to, irgroup.bind_to())
+                        # self.config.ir.logger.debug("V3Listener %s: skip TCPMappingGroup on %s", self.bind_to, irgroup.bind_to())
                         continue
                     
                     self.add_tcp_group(irgroup)
