@@ -244,7 +244,7 @@ class ListenerFactory:
                 # Nothing already exists, so fab one up. 
                 protocol = "TLS" if group.get('tls_context', None) else "TCP"
                 bind_address = group.get('address') or Config.envoy_bind_address
-                name = f"tcplistener-{bind_address}-{group.port}"
+                name = f"listener-{bind_address}-{group.port}"
 
                 ir.logger.info("ListenerFactory: synthesizing %s listener for TCPMappingGroup on %s:%d" %
                                (protocol, bind_address, group.port))
