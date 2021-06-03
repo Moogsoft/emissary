@@ -90,6 +90,8 @@ spec:
         imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
         resources:
         {{- toYaml .Values.redis.resources | nindent 10 }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       restartPolicy: Always
       {{- with .Values.redis.nodeSelector }}
       nodeSelector:
